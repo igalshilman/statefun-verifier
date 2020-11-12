@@ -64,5 +64,7 @@ parallelism.default: 2
 
 # the following path works for docker-compose, if you need to run this in the harness
 # make sure to change it to a different value
-state.checkpoints.dir: file:///checkpoint-dir/
+state.checkpoints.dir: file:///tmp/checkpoints
+
+execution.checkpointing.unaligned: true
 

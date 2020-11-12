@@ -127,10 +127,10 @@ public class CommandFlinkSource extends RichSourceFunction<SourceCommand>
       if (done) {
         return;
       }
-      if (i == kaboomIndex) {
-        LOG.info("KABOOM at message {}", i);
-        throw new RuntimeException("KABOOM!!!");
-      }
+//      if (i == kaboomIndex) {
+//        LOG.info("KABOOM at message {}", i);
+//        throw new RuntimeException("KABOOM!!!");
+//      }
       SourceCommand command = generator.get();
       synchronized (ctx.getCheckpointLock()) {
         functionStateTracker.apply(command);

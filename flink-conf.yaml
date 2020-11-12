@@ -40,7 +40,7 @@ taskmanager.memory.process.size: 4g
 
 statefun.module.global-config.numberOfFunctionInstances: 1000
 statefun.module.global-config.commandDepth: 10
-statefun.module.global-config.messageCount: 100000
+statefun.module.global-config.messageCount: 1000000
 statefun.module.global-config.sleepTimeBeforeVerifyMs: 120000
 statefun.module.global-config.sleepTimeAfterVerifyMs: 60000
 

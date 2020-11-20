@@ -25,8 +25,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 
 import static com.github.igalshilman.statefun.verifier.Constants.IN;
 import static com.github.igalshilman.statefun.verifier.Constants.OUT;
@@ -45,18 +43,7 @@ public final class Module implements StatefulFunctionModule {
     binder.bindEgress(new SinkFunctionSpec<>(OUT, new DiscardingSink<>()));
     binder.bindIngressRouter(IN, new CommandRouter(ids));
 
-    FunctionProvider provider = new FunctionProvider(ids, asyncExecutorService());
+    FunctionProvider provider = new FunctionProvider(ids);
     binder.bindFunctionProvider(Constants.FN_TYPE, provider);
-  }
-
-  private static ScheduledExecutorService asyncExecutorService() {
-    return Executors.newScheduledThreadPool(
-        0,
-        r -> {
-          Thread t = new Thread(r);
-          t.setDaemon(true);
-          t.setName("command-interpreter-executor-service");
-          return t;
-        });
   }
 }

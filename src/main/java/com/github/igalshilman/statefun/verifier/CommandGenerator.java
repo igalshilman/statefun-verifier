@@ -2,7 +2,6 @@ package com.github.igalshilman.statefun.verifier;
 
 import com.github.igalshilman.statefun.verifier.generated.Command;
 import com.github.igalshilman.statefun.verifier.generated.Commands;
-import com.github.igalshilman.statefun.verifier.generated.FnAddress;
 import com.github.igalshilman.statefun.verifier.generated.SourceCommand;
 import org.apache.commons.math3.distribution.EnumeratedDistribution;
 import org.apache.commons.math3.random.RandomGenerator;
@@ -34,7 +33,7 @@ public final class CommandGenerator implements Supplier<SourceCommand> {
 
   @Override
   public SourceCommand get() {
-    int depth = random.nextInt(moduleParameters.getCommandDepth());
+    final int depth = random.nextInt(moduleParameters.getCommandDepth());
     return SourceCommand.newBuilder().setTarget(address()).setCommands(commands(depth)).build();
   }
 
@@ -55,9 +54,8 @@ public final class CommandGenerator implements Supplier<SourceCommand> {
     return builder;
   }
 
-  private FnAddress.Builder address() {
-    final int id = random.nextInt(moduleParameters.getNumberOfFunctionInstances());
-    return FnAddress.newBuilder().setType(0).setId(id);
+  private int address() {
+    return random.nextInt(moduleParameters.getNumberOfFunctionInstances());
   }
 
   private List<Pair<Gen, Double>> randomCommandGenerators() {
@@ -104,7 +102,7 @@ public final class CommandGenerator implements Supplier<SourceCommand> {
     @Override
     public void generate(Commands.Builder builder, int depth) {
       builder.addCommand(
-          Command.newBuilder().setModify(Command.ModifyState.newBuilder().setDelta(1)));
+          Command.newBuilder().setIncrement(Command.IncrementState.getDefaultInstance()));
     }
   }
 
@@ -116,10 +114,7 @@ public final class CommandGenerator implements Supplier<SourceCommand> {
     }
 
     private Command.SendAfter.Builder sendAfter(int depth) {
-      return Command.SendAfter.newBuilder()
-          .setTarget(address())
-          .setCommands(commands(depth - 1))
-          .setDurationMs(1);
+      return Command.SendAfter.newBuilder().setTarget(address()).setCommands(commands(depth - 1));
     }
   }
 
@@ -144,7 +139,6 @@ public final class CommandGenerator implements Supplier<SourceCommand> {
 
     private Command.AsyncOperation.Builder asyncOp(int depth) {
       return Command.AsyncOperation.newBuilder()
-          .setResolveAfterMs(1)
           .setFailure(random.nextBoolean())
           .setResolvedCommands(commands(depth - 1));
     }

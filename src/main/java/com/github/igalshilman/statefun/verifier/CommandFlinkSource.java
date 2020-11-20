@@ -2,15 +2,14 @@ package com.github.igalshilman.statefun.verifier;
 
 import com.github.igalshilman.statefun.verifier.generated.Command;
 import com.github.igalshilman.statefun.verifier.generated.Commands;
-import com.github.igalshilman.statefun.verifier.generated.FnAddress;
 import com.github.igalshilman.statefun.verifier.generated.SourceCommand;
+import com.github.igalshilman.statefun.verifier.generated.SourceSnapshot;
 import org.apache.commons.math3.random.JDKRandomGenerator;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.OperatorStateStore;
-import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
-import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
@@ -25,19 +24,9 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 
 public class CommandFlinkSource extends RichSourceFunction<SourceCommand>
-    implements CheckpointedFunction {
+    implements CheckpointedFunction, CheckpointListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(CommandFlinkSource.class);
-
-  // ------------------------------------------------------------------------------------------------------------
-  // State Descriptors
-  // ------------------------------------------------------------------------------------------------------------
-
-  private static final ListStateDescriptor<Integer> COMMANDS_SENT_SO_FAR_DESCRIPTOR =
-      new ListStateDescriptor<>("messages_sent", BasicTypeInfo.INT_TYPE_INFO);
-
-  private static final ListStateDescriptor<byte[]> FUNCTION_STATE_TRACKER_DESCRIPTOR =
-      new ListStateDescriptor<>("states", PrimitiveArrayTypeInfo.BYTE_PRIMITIVE_ARRAY_TYPE_INFO);
 
   // ------------------------------------------------------------------------------------------------------------
   // Configuration
@@ -49,14 +38,12 @@ public class CommandFlinkSource extends RichSourceFunction<SourceCommand>
   // Runtime
   // ------------------------------------------------------------------------------------------------------------
 
-  private transient ListState<Integer> commandsSentSoFarHandle;
-  private transient int commandsSentSoFar;
-
-  private transient ListState<byte[]> functionStateTrackerHandle;
+  private transient ListState<SourceSnapshot> sourceSnapshotHandle;
   private transient FunctionStateTracker functionStateTracker;
-
-  private transient boolean isRestored;
-  private volatile boolean done;
+  private transient int commandsSentSoFar;
+  private transient int failuresSoFar;
+  private transient boolean done;
+  private transient boolean atLeastOneCheckpointCompleted;
 
   public CommandFlinkSource(ModuleParameters moduleParameters) {
     this.moduleParameters = Objects.requireNonNull(moduleParameters);
@@ -65,74 +52,92 @@ public class CommandFlinkSource extends RichSourceFunction<SourceCommand>
   @Override
   public void initializeState(FunctionInitializationContext context) throws Exception {
     OperatorStateStore store = context.getOperatorStateStore();
-    functionStateTrackerHandle = store.getUnionListState(FUNCTION_STATE_TRACKER_DESCRIPTOR);
-    commandsSentSoFarHandle = store.getUnionListState(COMMANDS_SENT_SO_FAR_DESCRIPTOR);
-    isRestored = context.isRestored();
+    sourceSnapshotHandle =
+        store.getUnionListState(new ListStateDescriptor<>("snapshot", SourceSnapshot.class));
   }
 
   @Override
   public void open(Configuration parameters) throws Exception {
     super.open(parameters);
-    byte[] bytes = getOnlyElement(functionStateTrackerHandle.get(), new byte[0]);
+    SourceSnapshot sourceSnapshot =
+        getOnlyElement(sourceSnapshotHandle.get(), SourceSnapshot.getDefaultInstance());
     functionStateTracker =
-        new FunctionStateTracker(moduleParameters.getNumberOfFunctionInstances()).apply(bytes);
-    commandsSentSoFar = getOnlyElement(commandsSentSoFarHandle.get(), 0);
+        new FunctionStateTracker(moduleParameters.getNumberOfFunctionInstances())
+            .apply(sourceSnapshot.getTracker());
+    commandsSentSoFar = sourceSnapshot.getCommandsSentSoFarHandle();
+    failuresSoFar = sourceSnapshot.getFailuresGeneratedSoFar();
   }
 
   @Override
   public void snapshotState(FunctionSnapshotContext context) throws Exception {
-    functionStateTrackerHandle.clear();
-    functionStateTrackerHandle.add(functionStateTracker.snapshot());
-    commandsSentSoFarHandle.clear();
-    commandsSentSoFarHandle.add(commandsSentSoFar);
+    sourceSnapshotHandle.clear();
+    sourceSnapshotHandle.add(
+        SourceSnapshot.newBuilder()
+            .setCommandsSentSoFarHandle(commandsSentSoFar)
+            .setTracker(functionStateTracker.snapshot())
+            .setFailuresGeneratedSoFar(failuresSoFar)
+            .build());
 
-    double perCent = 100.0d * commandsSentSoFar / moduleParameters.getMessageCount();
-    LOG.info(
-        "Commands sent {} / {} ({} %)",
-        commandsSentSoFar, moduleParameters.getMessageCount(), perCent);
+    if (commandsSentSoFar < moduleParameters.getMessageCount()) {
+      double perCent = 100.0d * (commandsSentSoFar) / moduleParameters.getMessageCount();
+      LOG.info(
+          "Commands sent {} / {} ({} %)",
+          commandsSentSoFar, moduleParameters.getMessageCount(), perCent);
+    }
   }
+
+  @Override
+  public void notifyCheckpointComplete(long checkpointId) {
+    atLeastOneCheckpointCompleted = true;
+  }
+
+  @Override
+  public void cancel() {
+    done = true;
+  }
+
+  // ------------------------------------------------------------------------------------------------------------
+  // Generation
+  // ------------------------------------------------------------------------------------------------------------
 
   @Override
   public void run(SourceContext<SourceCommand> ctx) {
     generate(ctx);
-    if (done) {
-      return;
-    }
-    LOG.info(
-        "Generation phase complete. Will wait for {} ms",
-        moduleParameters.getSleepTimeBeforeVerifyMs());
-    sleep(moduleParameters.getSleepTimeBeforeVerifyMs());
-    LOG.info("Starting verification phase.");
-    verify(ctx);
-    LOG.info(
-        "All verification messages sent, about to wait for {} ms",
-        moduleParameters.getSleepTimeAfterVerifyMs());
-    sleep(moduleParameters.getSleepTimeAfterVerifyMs());
-    LOG.info("Verification completed successfully.");
+    do {
+      verify(ctx);
+      snooze();
+      synchronized (ctx.getCheckpointLock()) {
+        if (done) {
+          return;
+        }
+      }
+    } while (true);
   }
 
   private void generate(SourceContext<SourceCommand> ctx) {
     final int startPosition = this.commandsSentSoFar;
-    final int kaboomIndex = computeFailureIndex(startPosition, isRestored).orElse(-1);
+    final OptionalInt kaboomIndex =
+        computeFailureIndex(startPosition, failuresSoFar, moduleParameters.getMaxFailures());
+    if (kaboomIndex.isPresent()) {
+      failuresSoFar++;
+    }
     LOG.info(
         "starting at {}, kaboom at {}, total messages {}",
         startPosition,
         kaboomIndex,
         moduleParameters.getMessageCount());
-
     Supplier<SourceCommand> generator =
         new CommandGenerator(new JDKRandomGenerator(), moduleParameters);
     FunctionStateTracker functionStateTracker = this.functionStateTracker;
     for (int i = startPosition; i < moduleParameters.getMessageCount(); i++) {
-      if (done) {
-        return;
+      if (atLeastOneCheckpointCompleted && kaboomIndex.isPresent() && i >= kaboomIndex.getAsInt()) {
+        throw new RuntimeException("KABOOM!!!");
       }
-//      if (i == kaboomIndex) {
-//        LOG.info("KABOOM at message {}", i);
-//        throw new RuntimeException("KABOOM!!!");
-//      }
       SourceCommand command = generator.get();
       synchronized (ctx.getCheckpointLock()) {
+        if (done) {
+          return;
+        }
         functionStateTracker.apply(command);
         ctx.collect(command);
         this.commandsSentSoFar = i;
@@ -151,7 +156,7 @@ public class CommandFlinkSource extends RichSourceFunction<SourceCommand>
 
       SourceCommand command =
           SourceCommand.newBuilder()
-              .setTarget(FnAddress.newBuilder().setType(0).setId(i))
+              .setTarget(i)
               .setCommands(Commands.newBuilder().addCommand(verify))
               .build();
       synchronized (ctx.getCheckpointLock()) {
@@ -160,17 +165,12 @@ public class CommandFlinkSource extends RichSourceFunction<SourceCommand>
     }
   }
 
-  @Override
-  public void cancel() {
-    done = true;
-  }
-
   // ---------------------------------------------------------------------------------------------------------------
   // Utils
   // ---------------------------------------------------------------------------------------------------------------
 
-  private OptionalInt computeFailureIndex(int startPosition, boolean isRestored) {
-    if (isRestored) {
+  private OptionalInt computeFailureIndex(int startPosition, int failureSoFar, int maxFailures) {
+    if (failureSoFar >= maxFailures) {
       return OptionalInt.empty();
     }
     if (startPosition >= moduleParameters.getMessageCount()) {
@@ -181,9 +181,9 @@ public class CommandFlinkSource extends RichSourceFunction<SourceCommand>
     return OptionalInt.of(index);
   }
 
-  private static void sleep(long millis) {
+  private static void snooze() {
     try {
-      Thread.sleep(millis);
+      Thread.sleep(2_000);
     } catch (InterruptedException e) {
       throw new RuntimeException(e);
     }

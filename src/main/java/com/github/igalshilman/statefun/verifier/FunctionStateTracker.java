@@ -2,12 +2,10 @@ package com.github.igalshilman.statefun.verifier;
 
 import com.github.igalshilman.statefun.verifier.generated.Command;
 import com.github.igalshilman.statefun.verifier.generated.Commands;
-import com.github.igalshilman.statefun.verifier.generated.FnAddress;
 import com.github.igalshilman.statefun.verifier.generated.FunctionTrackerSnapshot;
 import com.github.igalshilman.statefun.verifier.generated.SourceCommand;
-import com.google.protobuf.InvalidProtocolBufferException;
 
-public final class FunctionStateTracker {
+final class FunctionStateTracker {
   private final long[] expectedStates;
 
   public FunctionStateTracker(int numberOfFunctionInstances) {
@@ -23,8 +21,7 @@ public final class FunctionStateTracker {
   }
 
   /** Apply all the state modification stored in the snapshot represented by the snapshotBytes. */
-  public FunctionStateTracker apply(byte[] snapshotBytes) throws InvalidProtocolBufferException {
-    FunctionTrackerSnapshot snapshot = FunctionTrackerSnapshot.parseFrom(snapshotBytes);
+  public FunctionStateTracker apply(FunctionTrackerSnapshot snapshot) {
     for (int i = 0; i < snapshot.getStateCount(); i++) {
       expectedStates[i] += snapshot.getState(i);
     }
@@ -36,24 +33,23 @@ public final class FunctionStateTracker {
     return expectedStates[id];
   }
 
-  public byte[] snapshot() {
+  public FunctionTrackerSnapshot.Builder snapshot() {
     FunctionTrackerSnapshot.Builder snapshot = FunctionTrackerSnapshot.newBuilder();
     for (long state : expectedStates) {
       snapshot.addState(state);
     }
-    return snapshot.build().toByteArray();
+    return snapshot;
   }
 
   /**
    * Recursively traverse the commands tree and look for {@link
-   * com.github.igalshilman.statefun.verifier.generated.Command.ModifyState} commands. For each
+   * com.github.igalshilman.statefun.verifier.generated.Command.IncrementState} commands. For each
    * {@code ModifyState} command found update the corresponding expected state.
    */
-  private void updateInternally(FnAddress currentAddress, Commands commands) {
+  private void updateInternally(int currentAddress, Commands commands) {
     for (Command command : commands.getCommandList()) {
-      if (command.hasModify()) {
-        long delta = command.getModify().getDelta();
-        expectedStates[currentAddress.getId()] += delta;
+      if (command.hasIncrement()) {
+        expectedStates[currentAddress]++;
       } else if (command.hasSend()) {
         updateInternally(command.getSend().getTarget(), command.getSend().getCommands());
       } else if (command.hasSendAfter()) {

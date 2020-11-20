@@ -1,10 +1,9 @@
 package com.github.igalshilman.statefun.verifier;
 
-import com.github.igalshilman.statefun.verifier.Constants;
-import com.github.igalshilman.statefun.verifier.Ids;
 import com.github.igalshilman.statefun.verifier.generated.Command;
 import com.github.igalshilman.statefun.verifier.generated.Commands;
 import com.github.igalshilman.statefun.verifier.generated.SourceCommand;
+import com.github.igalshilman.statefun.verifier.generated.VerificationResult;
 import com.google.protobuf.Any;
 import org.apache.flink.statefun.sdk.AsyncOperationResult;
 import org.apache.flink.statefun.sdk.Context;
@@ -14,22 +13,15 @@ import org.apache.flink.statefun.sdk.state.PersistedValue;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public final class CommandInterpreter {
-  private static final Throwable ASYNC_OP_THROWABLE;
-
-  static {
-    ASYNC_OP_THROWABLE = new RuntimeException();
-    ASYNC_OP_THROWABLE.setStackTrace(new StackTraceElement[] {});
-  }
-
-  private final ScheduledExecutorService service;
+  private final SlowCompleter slowCompleter;
   private final Ids ids;
+  private static final Duration sendAfterDelay = Duration.ofMillis(1);
 
-  public CommandInterpreter(Ids ids, ScheduledExecutorService service) {
-    this.service = service;
+  public CommandInterpreter(Ids ids) {
+    this.slowCompleter = new SlowCompleter();
+    slowCompleter.start();
     this.ids = Objects.requireNonNull(ids);
   }
 
@@ -50,8 +42,8 @@ public final class CommandInterpreter {
 
   private void interpret(PersistedValue<Long> state, Context context, Commands command) {
     for (Command cmd : command.getCommandList()) {
-      if (cmd.hasModify()) {
-        modifyState(state, context, cmd.getModify());
+      if (cmd.hasIncrement()) {
+        modifyState(state, context, cmd.getIncrement());
       } else if (cmd.hasAsyncOperation()) {
         registerAsyncOps(state, context, cmd.getAsyncOperation());
       } else if (cmd.hasSend()) {
@@ -70,11 +62,16 @@ public final class CommandInterpreter {
       PersistedValue<Long> state,
       @SuppressWarnings("unused") Context context,
       Command.Verify verify) {
+    int selfId = Integer.parseInt(context.self().id());
     long actual = state.getOrDefault(0L);
     long expected = verify.getExpected();
-    if (expected != actual) {
-      throw new IllegalStateException("Verification failed " + expected + " vs " + actual);
-    }
+    context.send(
+        Constants.VERIFICATION_RESULT,
+        VerificationResult.newBuilder()
+            .setId(selfId)
+            .setActual(actual)
+            .setExpected(expected)
+            .build());
   }
 
   private void sendEgress(
@@ -90,8 +87,7 @@ public final class CommandInterpreter {
       Command.SendAfter send) {
     FunctionType functionType = Constants.FN_TYPE;
     String id = ids.idOf(send.getTarget());
-    Duration delay = Duration.ofMillis(send.getDurationMs());
-    context.sendAfter(delay, functionType, id, send.getCommands());
+    context.sendAfter(sendAfterDelay, functionType, id, send.getCommands());
   }
 
   private void send(
@@ -105,18 +101,10 @@ public final class CommandInterpreter {
       @SuppressWarnings("unused") PersistedValue<Long> state,
       Context context,
       Command.AsyncOperation asyncOperation) {
-    CompletableFuture<Boolean> future = new CompletableFuture<>();
-    boolean failure = asyncOperation.getFailure();
-    service.schedule(
-        () -> {
-          if (failure) {
-            future.completeExceptionally(ASYNC_OP_THROWABLE);
-          } else {
-            future.complete(true);
-          }
-        },
-        asyncOperation.getResolveAfterMs(),
-        TimeUnit.MILLISECONDS);
+    CompletableFuture<Boolean> future =
+        asyncOperation.getFailure()
+            ? slowCompleter.successfulFuture()
+            : slowCompleter.failedFuture();
 
     Commands next = asyncOperation.getResolvedCommands();
     context.registerAsyncOperation(next, future);
@@ -125,7 +113,7 @@ public final class CommandInterpreter {
   private void modifyState(
       PersistedValue<Long> state,
       @SuppressWarnings("unused") Context context,
-      Command.ModifyState modifyState) {
-    state.updateAndGet(n -> n == null ? modifyState.getDelta() : n + modifyState.getDelta());
+      @SuppressWarnings("unused") Command.IncrementState incrementState) {
+    state.updateAndGet(n -> n == null ? 1 : n + 1);
   }
 }

@@ -1,10 +1,10 @@
 package com.github.igalshilman.statefun.verifier;
 
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.type.TypeReference;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.DeserializationFeature;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.Serializable;
-import java.time.Duration;
 import java.util.Map;
 
 @SuppressWarnings("unused")
@@ -15,8 +15,6 @@ public final class ModuleParameters implements Serializable {
   private int numberOfFunctionInstances = 1_000;
   private int commandDepth = 10;
   private int messageCount = 100_000;
-  private long sleepTimeBeforeVerifyMs = Duration.ofMinutes(2).toMillis();
-  private long sleepTimeAfterVerifyMs = Duration.ofMinutes(1).toMillis();
   private int maxCommandsPerDepth = 3;
   private double stateModificationsPr = 0.4;
   private double sendPr = 0.9;
@@ -24,17 +22,24 @@ public final class ModuleParameters implements Serializable {
   private double asyncSendPr = 0.1;
   private double noopPr = 0.2;
   private double sendEgressPr = 0.03;
+  private int maxFailures = 1;
 
   /**
    * Creates an instance of ModuleParameters from a key-value map.
    *
    * <p>See the bottom of a {@code flink-conf.yaml}, in this project for an example of how to
-   * specify keys here, and the assosciated unit test.
+   * specify keys here, and the associated unit test.
    */
   public static ModuleParameters from(Map<String, String> globalConfiguration) {
     ObjectMapper mapper = new ObjectMapper();
     mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     return mapper.convertValue(globalConfiguration, ModuleParameters.class);
+  }
+
+  public Map<String, String> asMap() {
+    ObjectMapper mapper = new ObjectMapper();
+    mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    return mapper.convertValue(this, new TypeReference<Map<String, String>>() {});
   }
 
   public int getNumberOfFunctionInstances() {
@@ -59,22 +64,6 @@ public final class ModuleParameters implements Serializable {
 
   public void setMessageCount(int messageCount) {
     this.messageCount = messageCount;
-  }
-
-  public long getSleepTimeBeforeVerifyMs() {
-    return sleepTimeBeforeVerifyMs;
-  }
-
-  public void setSleepTimeBeforeVerifyMs(long sleepTimeBeforeVerifyMs) {
-    this.sleepTimeBeforeVerifyMs = sleepTimeBeforeVerifyMs;
-  }
-
-  public long getSleepTimeAfterVerifyMs() {
-    return sleepTimeAfterVerifyMs;
-  }
-
-  public void setSleepTimeAfterVerifyMs(long sleepTimeAfterVerifyMs) {
-    this.sleepTimeAfterVerifyMs = sleepTimeAfterVerifyMs;
   }
 
   public int getMaxCommandsPerDepth() {
@@ -133,6 +122,14 @@ public final class ModuleParameters implements Serializable {
     this.sendEgressPr = sendEgressPr;
   }
 
+  public void setMaxFailures(int maxFailures) {
+    this.maxFailures = maxFailures;
+  }
+
+  public int getMaxFailures() {
+    return maxFailures;
+  }
+
   @Override
   public String toString() {
     return "ModuleParameters{"
@@ -142,10 +139,6 @@ public final class ModuleParameters implements Serializable {
         + commandDepth
         + ", messageCount="
         + messageCount
-        + ", sleepTimeBeforeVerifyMs="
-        + sleepTimeBeforeVerifyMs
-        + ", sleepTimeAfterVerifyMs="
-        + sleepTimeAfterVerifyMs
         + ", maxCommandsPerDepth="
         + maxCommandsPerDepth
         + ", stateModificationsPr="
@@ -160,6 +153,8 @@ public final class ModuleParameters implements Serializable {
         + noopPr
         + ", sendEgressPr="
         + sendEgressPr
+        + ", maxFailures="
+        + maxFailures
         + '}';
   }
 }

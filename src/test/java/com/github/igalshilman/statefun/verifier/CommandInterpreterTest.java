@@ -1,8 +1,5 @@
 package com.github.igalshilman.statefun.verifier;
 
-import com.github.igalshilman.statefun.verifier.generated.Command;
-import com.github.igalshilman.statefun.verifier.generated.Commands;
-import com.github.igalshilman.statefun.verifier.generated.FnAddress;
 import com.github.igalshilman.statefun.verifier.generated.SourceCommand;
 import org.apache.flink.statefun.sdk.Address;
 import org.apache.flink.statefun.sdk.Context;
@@ -12,7 +9,6 @@ import org.junit.Test;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
 
 import static com.github.igalshilman.statefun.verifier.Utils.aStateModificationCommand;
 import static org.hamcrest.CoreMatchers.is;
@@ -22,8 +18,7 @@ public class CommandInterpreterTest {
 
   @Test
   public void exampleUsage() {
-    CommandInterpreter interpreter =
-        new CommandInterpreter(new Ids(10), Executors.newSingleThreadScheduledExecutor());
+    CommandInterpreter interpreter = new CommandInterpreter(new Ids(10));
 
     PersistedValue<Long> state = PersistedValue.of("state", Long.class);
     Context context = new MockContext();
@@ -33,8 +28,6 @@ public class CommandInterpreterTest {
 
     assertThat(state.get(), is(1L));
   }
-
-
 
   private static final class MockContext implements Context {
 

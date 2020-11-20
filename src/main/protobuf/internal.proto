@@ -26,3 +26,10 @@ message FunctionTrackerSnapshot {
   repeated int64 state = 1;
 }
 
+message SourceSnapshot {
+  int32 commandsSentSoFarHandle = 1;
+  int32 failuresGeneratedSoFar = 2;
+  FunctionTrackerSnapshot tracker = 3;
+}
+
+

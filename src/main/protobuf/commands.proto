@@ -23,7 +23,7 @@ option java_package = "com.github.igalshilman.statefun.verifier.generated";
 option java_multiple_files = true;
 
 message SourceCommand {
-  FnAddress target = 1;
+  int32 target = 1;
   Commands commands = 2;
 }
 
@@ -32,49 +32,39 @@ message Commands {
 }
 
 message Command {
-  message ModifyState {
-    int64 delta = 1;
+  message IncrementState {
   }
   message Send {
-    FnAddress target = 1;
+    int32 target = 1;
     Commands commands = 2;
   }
   message SendAfter {
-    int32 duration_ms = 1;
-    FnAddress target = 2;
-    Commands commands = 3;
+    int32 target = 1;
+    Commands commands = 2;
   }
   message SendEgress {
   }
   message AsyncOperation {
-    int32 resolve_after_ms = 1;
-    bool failure = 2;
-    Commands resolved_commands = 3;
+    bool failure = 1;
+    Commands resolved_commands = 2;
   }
   message Verify {
     int64 expected = 1;
   }
-  message UseCPU {
-    int64 fib = 1;
-  }
-  message UseIO {
-    int32 sleep_ms = 1;
-  }
 
   oneof command {
-    ModifyState modify = 1;
+    IncrementState increment = 1;
     Send send = 2;
     SendAfter send_after = 3;
     SendEgress send_egress = 4;
-    AsyncOperation async_operation = 6;
-    UseCPU use_cpu = 7;
-    UseIO use_io = 8;
-    Verify verify = 9;
+    AsyncOperation async_operation = 5;
+    Verify verify = 6;
   }
 }
 
-message FnAddress {
-  int32 type = 1;
-  int32 id = 2;
+message VerificationResult {
+  int32 id = 1;
+  int64 expected = 2;
+  int64 actual = 3;
 }
 

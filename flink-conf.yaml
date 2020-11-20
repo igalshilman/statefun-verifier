@@ -41,8 +41,7 @@ taskmanager.memory.process.size: 4g
 statefun.module.global-config.numberOfFunctionInstances: 1000
 statefun.module.global-config.commandDepth: 10
 statefun.module.global-config.messageCount: 1000000
-statefun.module.global-config.sleepTimeBeforeVerifyMs: 120000
-statefun.module.global-config.sleepTimeAfterVerifyMs: 60000
+statefun.module.global-config.maxFailures: 1
 
 # Command probability distribution
 
@@ -65,6 +64,4 @@ parallelism.default: 2
 # the following path works for docker-compose, if you need to run this in the harness
 # make sure to change it to a different value
 state.checkpoints.dir: file:///tmp/checkpoints
-
-execution.checkpointing.unaligned: true
 

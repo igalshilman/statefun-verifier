@@ -4,7 +4,11 @@ import com.github.igalshilman.statefun.verifier.generated.VerificationResult;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.GlobalConfiguration;
+import org.apache.flink.statefun.flink.core.StatefulFunctionsConfig;
+import org.apache.flink.statefun.flink.core.StatefulFunctionsJob;
 import org.apache.flink.statefun.flink.harness.Harness;
+
+import java.util.Map;
 
 public class Main {
 
@@ -19,7 +23,9 @@ public class Main {
     // when running in the IDE, you probably just want to step trough, debug the application
     // you do not need to actually verify anything.
     // uncomment the next line to print the verification results to the screen:
-    // harness.withConsumingEgress(Constants.VERIFICATION_RESULT, Main::printMismatches);
+    harness.withConsumingEgress(Constants.VERIFICATION_RESULT, Main::printMismatches);
+    harness.withSavepointLocation("file:///tmp/checkpoints/savepoint/savepoint-800e39-7c4f66f740ba");
+
     harness.start();
   }
 
